@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<%- include('_html_head') %>
+<%- include('_google_analytics') %>
+</head>
+<body>
+<%- include('_header') %>
+<div class="container">
+  <div class="nomobile well_white" style="display:none;">
+    <div class="left"><img src="/images/hello.jpg" /></div>
+    <div class="left">
+    <h2><%= __('Welcome to textrans!') %></h2>
+    <p>- <%= __('"textrans" is web service that can transfer text in web browser only.') %></p>
+    <p>- <%= __('This service is useful, for example, if you want to transfer to mobile devices such as the iPhone a little text from PC.') %></p>
+    <div class="right">
+      <img src="/images/search.jpg" style="margin-right: 20px;" />
+      <img src="/images/qr.png" />
+    </div>
+    </div>
+    <div class="clear"></div>
+  </div>
+  <div class="tabbable">
+    <ul class="nav nav-tabs">
+      <li id="send_tab" class="active"><a href="#send" data-toggle="tab"><%= __('Send') %></a></li>
+      <li id="receive_tab"><a href="#receive" data-toggle="tab"><%= __('Receive') %></a></li>
+    </ul>
+    <div class="tab-content">
+      <div id="send" class="tab-pane active">
+        <form action="" id="form">
+          <%= __('Enter the text you want to transfer') %> : <div><textarea name="message" id="message" class="form-control input-lg" rows="3"></textarea></div>
+          <%= __('Enter the Keycode(4digit) that is displayed in destination\'s web browser') %> : <div><input type="text" name="keycode" id="keycode" class="form-control input-hg" value="" maxlength="4" pattern="[0-9]*" /></div>
+          <p class="mbl"></p>
+          <input type="submit" class="btn btn-hg btn-primary" value="<%= __('Transfer') %>"/>
+        </form>
+        <hr />
+        <div id="error" style="display:none;">
+          <p id="error_info" style="color: red;"></p>
+        </div>
+      </div>
+      <div id="receive" class="tab-pane">
+        <p><%= __('Keycode') %> : <img id="loading" src="/images/ajax-loader.gif" /><span id="your_keycode" class="large"></span></p>
+        <div class="alert alert-success"><p><%= __('Please enter this Keycode in sender\'s web browser.') %></p></div>
+        <hr />
+        <div id="pushed_content" style="display:none;">
+          <p id="pushed_info"><%= __('Received!') %></p>
+          <textarea id="pushed_text" class="form-control input-lg"></textarea>
+        </div>
+        <div id="func"></div>
+      </div>
+    </div>
+  </div>
+</div>
+<%- include('_script') %>
+</body>
+</html>

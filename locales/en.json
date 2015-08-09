@@ -1,0 +1,14 @@
+{
+	"Welcome to textrans!": "You can transfer the text data anywhere.",
+	"\"textrans\" is web service that can transfer text in web browser only.": "You can transfer text data from your web browser to another web browser.",
+	"This service is useful, for example, if you want to transfer to mobile devices such as the iPhone a little text from PC.": "This web service is useful, for example, if you want to transfer text data from PC to mobile devices such as the iPhone.",
+	"Send": "Send",
+	"Receive": "Receive",
+	"Enter the text you want to transfer": "Enter the text you want to transfer",
+	"Enter the Keycode(4digit) that is displayed in destination's web browser": "Enter the Keycode(4 digit)",
+	"Transfer": "Transfer",
+	"Keycode": "Keycode",
+	"Please enter this Keycode in sender's web browser.": "Please enter this Keycode in sender's web browser.",
+	"Received the text!": "Received the text!",
+	"Received!": "Received!"
+}

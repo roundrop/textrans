@@ -1,0 +1,13 @@
+{
+	"Welcome to textrans!": "You can transfer the text data anywhere.",
+	"\"textrans\" is web service that can transfer text in web browser only.": "textransは、複数デバイス間でカンタンにテキスト受渡しができるWebサービスです。",
+	"This service is useful, for example, if you want to transfer to mobile devices such as the iPhone a little text from PC.": "PCからiPhone等のモバイルデバイスへちょっとした文字を転送したい場合などに便利です。",
+	"Send": "送信する",
+	"Receive": "受信する",
+	"Enter the text you want to transfer": "送信したい文字を入力",
+	"Enter the Keycode(4digit) that is displayed in destination's web browser": "キーコード(4桁)を入力",
+	"Transfer": "送信する",
+	"Keycode": "キーコード",
+	"Please enter this Keycode in sender's web browser.": "このキーコードを送信側のWebブラウザに入力してください。",
+	"Received!": "受信しました!"
+}
