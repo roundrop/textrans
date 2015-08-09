@@ -26,7 +26,7 @@ app.use(i18n.init);
 
 /* http */
 app.get('/', function(req, res) {
-  res.render('index');
+  res.render('index', {'isSP': isSmartPhone(JSON.stringify(req.headers['user-agent']))});
 });
 http.listen(process.env.PORT || 3000);
 
@@ -57,6 +57,11 @@ io.sockets.on('connection', function(socket) {
 });
 
 /* functions */
+function isSmartPhone(ua) {
+  return (ua.indexOf('iPhone') > 0 && ua.indexOf('iPad') == -1) || ua.indexOf('iPod') > 0
+    || ua.indexOf('Android') > 0;
+}
+
 function generateKeycode() {
   var keycode = ('000' + Math.floor(Math.random() * 9999 + 1)).slice(-4);
   while (map.has(keycode)) {

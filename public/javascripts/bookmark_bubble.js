@@ -182,7 +182,7 @@ google.bookmarkbubble.Bubble.prototype.NUMBER_OF_TIMES_TO_DISMISS = 2;
  * destruct after this amount of time.
  * @type {number}
  */
-google.bookmarkbubble.Bubble.prototype.TIME_UNTIL_AUTO_DESTRUCT = 15000;
+google.bookmarkbubble.Bubble.prototype.TIME_UNTIL_AUTO_DESTRUCT = 150000;
 
 
 /**
@@ -543,7 +543,7 @@ google.bookmarkbubble.Bubble.prototype.build_ = function() {
 
   var bubbleInner = document.createElement('div');
   bubbleInner.style.position = 'relative';
-  bubbleInner.style.width = '214px';
+  bubbleInner.style.width = '244px';
   bubbleInner.style.margin = isIpad ? '0 0 0 82px' : '0 auto';
   bubbleInner.style.border = '2px solid #fff';
   bubbleInner.style.padding = '20px 20px 20px 10px';
@@ -604,7 +604,7 @@ google.bookmarkbubble.Bubble.prototype.build_ = function() {
   close.style.right = '-3px';
   close.style.width = '16px';
   close.style.height = '16px';
-  close.style.border = '10px solid transparent';
+  //close.style.border = '10px solid transparent';
   close.style.background =
       'url(' + this.IMAGE_CLOSE_DATA_URL_ + ') no-repeat';
   bubbleInner.appendChild(close);

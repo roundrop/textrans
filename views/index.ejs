@@ -7,7 +7,8 @@
 <body>
 <%- include('_header') %>
 <div class="container">
-  <div class="nomobile well_white" style="display:none;">
+  <%if (!isSP) {%>
+  <div class="nomobile well_white">
     <div class="left"><img src="/images/hello.jpg" /></div>
     <div class="left">
     <h2><%= __('Welcome to textrans!') %></h2>
@@ -20,13 +21,14 @@
     </div>
     <div class="clear"></div>
   </div>
+  <%}%>
   <div class="tabbable">
     <ul class="nav nav-tabs">
-      <li id="send_tab" class="active"><a href="#send" data-toggle="tab"><%= __('Send') %></a></li>
-      <li id="receive_tab"><a href="#receive" data-toggle="tab"><%= __('Receive') %></a></li>
+      <li id="send_tab" <%if (!isSP) {%>class="active"<%}%>><a href="#send" data-toggle="tab"><%= __('Send') %></a></li>
+      <li id="receive_tab" <%if (isSP) {%>class="active"<%}%>><a href="#receive" data-toggle="tab"><%= __('Receive') %></a></li>
     </ul>
     <div class="tab-content">
-      <div id="send" class="tab-pane active">
+      <div id="send" class="tab-pane<%if (!isSP) {%> active<%}%>">
         <form action="" id="form">
           <%= __('Enter the text you want to transfer') %> : <div><textarea name="message" id="message" class="form-control input-lg" rows="3"></textarea></div>
           <%= __('Enter the Keycode(4digit) that is displayed in destination\'s web browser') %> : <div><input type="text" name="keycode" id="keycode" class="form-control input-hg" value="" maxlength="4" pattern="[0-9]*" /></div>
@@ -38,7 +40,7 @@
           <p id="error_info" style="color: red;"></p>
         </div>
       </div>
-      <div id="receive" class="tab-pane">
+      <div id="receive" class="tab-pane<%if (isSP) {%> active<%}%>">
         <p><%= __('Keycode') %> : <img id="loading" src="/images/ajax-loader.gif" /><span id="your_keycode" class="large"></span></p>
         <div class="alert alert-success"><p><%= __('Please enter this Keycode in sender\'s web browser.') %></p></div>
         <hr />
