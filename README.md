@@ -1,2 +1,2 @@
 # textrans
-https://textrans.herokuapp.com source code
+https://textrans.fly.dev source code
