@@ -4,6 +4,28 @@
 
 [Textrans](https://textrans-v2.roundrop.workers.dev/) runs on Cloudflare Workers and Durable Objects.
 
+## Automatic deployment from GitHub
+
+The [GitHub Actions workflow](../.github/workflows/ci.yml) checks every pull request and push to `master`. A successful `master` push then deploys to the `textrans-v2` Worker. Failed or canceled checks and pull requests do not deploy.
+
+The checks include formatting, type checking, unit tests, and Chromium/WebKit browser tests against the production build. The deployment job downloads that tested build and deploys it without rebuilding. Each Worker version is tagged with the Git commit SHA. Runs for the same Git ref are serialized so deployments do not overlap; a new push does not interrupt an active deployment. GitHub keeps only the latest pending run for that ref.
+
+Before enabling automatic deployment, add these repository secrets under **Settings → Secrets and variables → Actions**:
+
+- `CLOUDFLARE_API_TOKEN`: An account-owned Cloudflare API token with **Individual Workers → Editor** access only to **`textrans-v2`**.
+- `CLOUDFLARE_ACCOUNT_ID`: The ID of that Cloudflare account.
+
+Create a custom account-owned token under **Manage Account → API Tokens**:
+
+1. Set the policy scope to **Specified Workers** and select **`textrans-v2`**.
+2. Select only **Individual Workers → Editor**.
+3. Remove inherited permissions such as **Workers Routes Write**, and remove any **Entire Account** policies supplied by a template.
+4. Check that the summary contains only the intended Worker and Editor permission before creating the token.
+
+Policies grant access cumulatively: adding a Worker-specific policy does not restrict a separate account-wide policy. This deployment changes no zone routes or custom domains, so it needs no zone permissions. The Worker's Durable Objects inherit its permissions. See [Workers roles and scopes](https://developers.cloudflare.com/workers/authorization/workers/) and [granular Wrangler authentication](https://developers.cloudflare.com/workers/authorization/#use-granular-permissions-with-wrangler).
+
+The workflow passes these credentials only to the deployment step. Missing secrets cause that step to fail with a setup message. Local `wrangler login` credentials are not available on GitHub runners.
+
 ## Before publishing
 
 1. Run `pnpm format:check`, `pnpm check`, `pnpm test`, and `pnpm test:e2e` (includes the production build). Stop any development server on port 5173 first so Playwright tests the production preview. The browser tests cover Chromium and WebKit; see the [development setup](../README.md#development) for browser installation.
