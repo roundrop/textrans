@@ -12,6 +12,8 @@ The checks include formatting, type checking, unit tests, and Chromium/WebKit br
 
 Before enabling automatic deployment, add these repository secrets under **Settings → Secrets and variables → Actions**:
 
+Open the **Secrets** tab and use **New repository secret** for each value. The workflow reads the `secrets` context; values added under **Repository variables** are not passed to its deployment step.
+
 - `CLOUDFLARE_API_TOKEN`: An account-owned Cloudflare API token with **Individual Workers → Editor** access only to **`textrans-v2`**.
 - `CLOUDFLARE_ACCOUNT_ID`: The ID of that Cloudflare account.
 
