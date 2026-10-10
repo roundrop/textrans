@@ -19,6 +19,7 @@ interface Usage {
 interface Attachment extends Usage {
   role: Role;
   lastActivity: number;
+  replaced?: boolean;
 }
 interface State {
   host: string;
@@ -105,6 +106,21 @@ export class Room extends DurableObject<Env> {
       });
     }
   }
+  private mergeUsage(previous: Usage | undefined, current: Usage): Usage {
+    if (!previous) return current;
+    const latest = current.minute >= previous.minute ? current : previous;
+    return {
+      total: Math.max(previous.total, current.total),
+      minute: latest.minute,
+      // Counters are monotonic within a window, but reset in a newer window.
+      bytes:
+        previous.minute === current.minute ? Math.max(previous.bytes, current.bytes) : latest.bytes,
+      messages:
+        previous.minute === current.minute
+          ? Math.max(previous.messages, current.messages)
+          : latest.messages,
+    };
+  }
   async fetch(request: Request) {
     if (this.expired() || !this.state) return json({ error: 'expired' }, 410);
     const protocols =
@@ -126,7 +142,9 @@ export class Room extends DurableObject<Env> {
       // A reconnect may arrive before a closing socket's close callback saves
       // its counters. Preserve that usage as well, so reconnecting cannot reset
       // the transfer budget.
-      if (!previous || attachment.total >= previous.total) previous = attachment;
+      previous = this.mergeUsage(previous, attachment);
+      // Persist invalidation across hibernation and delayed close callbacks.
+      old.serializeAttachment({ ...attachment, replaced: true });
       if (old.readyState === WebSocket.OPEN) old.close(4001, 'replaced');
     }
     const pair = new WebSocketPair();
@@ -158,6 +176,7 @@ export class Room extends DurableObject<Env> {
     // expose CLOSING while that queued message is dispatched; still process it.
     // A replaced socket, however, must never act on behalf of the new one.
     if (
+      a.replaced ||
       !this.ctx.getWebSockets().includes(ws) ||
       this.sockets(a.role).some((current) => current !== ws)
     )
@@ -231,7 +250,7 @@ export class Room extends DurableObject<Env> {
       /* already closed */
     }
     if (!this.state || this.sockets(a.role).length) return;
-    this.state.usage[a.role] = a;
+    this.state.usage[a.role] = this.mergeUsage(this.state.usage[a.role], a);
     this.state.lastActivity = Math.max(this.state.lastActivity, a.lastActivity);
     await this.ctx.storage.put('state', this.state);
     this.broadcastState();

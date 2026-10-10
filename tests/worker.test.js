@@ -103,6 +103,29 @@ async function room(host = 'host-hash') {
   await value.initialize(host, Date.now() + INVITE_TTL);
   return { ctx, value };
 }
+function stubSocketUpgrade() {
+  vi.stubGlobal(
+    'WebSocketPair',
+    class {
+      constructor() {
+        this[0] = socket('host');
+        this[1] = socket('host');
+      }
+    },
+  );
+  vi.stubGlobal(
+    'Response',
+    class {
+      constructor(body, init) {
+        Object.assign(this, init);
+      }
+    },
+  );
+}
+const socketRequest = (token) =>
+  new Request('https://example.test/api/rooms/id/socket', {
+    headers: { 'Sec-WebSocket-Protocol': `textrans-v1, ${token}` },
+  });
 
 describe('room lifecycle and server limits', () => {
   it('binds only one guest even when claims arrive together', async () => {
@@ -172,34 +195,66 @@ describe('room lifecycle and server limits', () => {
     old.readyState = 2;
     old.serializeAttachment({ ...old.deserializeAttachment(), total: 99_999_999 });
     ctx.sockets.push(old);
-    vi.stubGlobal(
-      'WebSocketPair',
-      class {
-        constructor() {
-          this[0] = socket('host');
-          this[1] = socket('host');
-        }
-      },
-    );
-    vi.stubGlobal(
-      'Response',
-      class {
-        constructor(body, init) {
-          Object.assign(this, init);
-        }
-      },
-    );
-    const response = await value.fetch(
-      new Request('https://example.test/api/rooms/id/socket', {
-        headers: { 'Sec-WebSocket-Protocol': `textrans-v1, ${token}` },
-      }),
-    );
+    stubSocketUpgrade();
+    const response = await value.fetch(socketRequest(token));
     expect(response.status).toBe(101);
     const resumed = ctx.sockets.at(-1);
     expect(resumed.deserializeAttachment().total).toBe(99_999_999);
     await value.webSocketMessage(resumed, new Uint8Array(100).buffer);
     expect(await ctx.storage.get('state')).toBeUndefined();
   });
+  it('ignores replaced sockets after the new socket closes, including across hibernation', async () => {
+    const token = 'A'.repeat(43);
+    const { ctx, value } = await room(await digest(token));
+    await value.join('guest', 'code');
+    const old = socket('host');
+    old.serializeAttachment({ ...old.deserializeAttachment(), total: 10, bytes: 10, messages: 1 });
+    ctx.sockets.push(old);
+    stubSocketUpgrade();
+    await value.fetch(socketRequest(token));
+    const resumed = ctx.sockets.at(-1);
+    await value.webSocketMessage(resumed, new Uint8Array(1).buffer);
+    await value.webSocketClose(resumed, 1000, 'closed');
+
+    const restored = new Room(ctx, {});
+    await ctx.ready;
+    await restored.webSocketMessage(old, JSON.stringify({ type: 'end' }));
+    await restored.webSocketClose(old, 1000, 'late-close');
+    const saved = (await ctx.storage.get('state')).usage.host;
+    expect(saved).toMatchObject({ total: 11, bytes: 11, messages: 2 });
+
+    // A future reconnect must preserve usage even after all attachments disappear.
+    ctx.sockets = [];
+    await restored.fetch(socketRequest(token));
+    expect(ctx.sockets.at(-1).deserializeAttachment()).toMatchObject(saved);
+  });
+  it.each([0, 60_000])(
+    'keeps saved usage monotonic after a delayed close with a %ims window difference',
+    async (elapsed) => {
+      const { ctx, value } = await room();
+      await value.join('guest', 'code');
+      const old = socket('host');
+      old.serializeAttachment({
+        ...old.deserializeAttachment(),
+        total: 10,
+        bytes: 10,
+        messages: 5,
+      });
+      vi.advanceTimersByTime(elapsed);
+      const current = socket('host');
+      const usage = { total: 11, bytes: elapsed ? 1 : 11, messages: elapsed ? 1 : 6 };
+      current.serializeAttachment({ ...current.deserializeAttachment(), ...usage });
+      ctx.sockets.push(old, current);
+      old.readyState = 2;
+      // Unmarked attachments also occur in rooms created before this change.
+      await value.webSocketClose(current, 1000, 'closed');
+      await value.webSocketClose(old, 1000, 'late-close');
+      expect((await ctx.storage.get('state')).usage.host).toEqual({
+        ...usage,
+        minute: Date.now(),
+      });
+    },
+  );
   it('enforces the absolute deadline despite recent traffic', async () => {
     const { ctx, value } = await room();
     await value.join('guest', 'qr');
