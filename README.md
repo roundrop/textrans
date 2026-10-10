@@ -1,18 +1,18 @@
 # Textrans
 
-**ちょっと、渡す。** テキストと小さなファイルを、いま開いている2台のブラウザの間で渡すツール。
+**A quick handoff.** Transfer text and small files between two open browsers.
 
-- 登録不要。QR・招待リンク、または6桁コードで接続。
-- 端末間で暗号化。数字コードの場合は、両画面の照合数字を確認してから接続。
-- 双方向のテキスト送信（UTF-8で64 KiBまで）。
-- 任意形式のファイルを1件 **10 MB = 10,000,000バイト**まで転送。受信者の承認が必要。
-- 到達確認、進捗、中止、通信断からの再接続・再送。
-- 本文・ファイル・復号鍵はブラウザのメモリだけで扱い、サーバーに永続保存しない。
-- 日本語・英語、モバイル表示、ダークモード、ホーム画面用manifest。
+- No account required. Connect with a QR code, an invitation link, or a six-digit code.
+- End-to-end encryption. When connecting by numeric code, compare the verification numbers on both screens and confirm before sending.
+- Send text in either direction, up to 64 KiB of UTF-8 per message.
+- Transfer files of any type, up to **10 MB = 10,000,000 bytes** per file, with the recipient's approval.
+- Delivery receipts, transfer progress, cancellation, and reconnection with retries after a temporary disconnection.
+- Text, files, and decryption keys stay in browser memory. The relay does not persist payloads or keys.
+- Japanese and English interfaces, mobile layouts, dark mode, and a home-screen manifest.
 
-## 開発
+## Development
 
-Node.js 22.12以上（推奨24 LTS）、pnpm 11.19.0。
+Requires Node.js 22.12 or later (24 LTS recommended) and pnpm 11.19.0.
 
 ```sh
 corepack enable
@@ -20,41 +20,43 @@ pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-`http://127.0.0.1:5173` を2つのブラウザ／ウィンドウで開く。Cloudflareアカウントなしで、ローカルのworkerdとDurable Objectsを使って動作する。
+Open `http://127.0.0.1:5173` in two browsers or windows. Development runs with local workerd and Durable Objects; no Cloudflare account is required.
 
 ```sh
-pnpm check             # Svelte・フロント・Workerの型検査
-pnpm test              # 暗号処理・プロトコル・Workerの単体テスト
+pnpm check             # Type-check Svelte, browser code, and the Worker
+pnpm test              # Unit tests for cryptography, the protocol, and the Worker
 pnpm exec playwright install chromium webkit
-pnpm test:e2e          # 本番ビルド後、ローカルの実ブラウザ送受信テスト
-pnpm build            # クライアントとWorkerの本番ビルド
-pnpm preview          # 本番ビルドをローカルで確認
+pnpm test:e2e          # Build for production and test browser-to-browser transfers locally
+pnpm build             # Production build of the client and Worker
+pnpm preview           # Preview the production build locally
 ```
 
-初回の依存インストールでは `esbuild` と `workerd` のビルドスクリプトを実行する（`pnpm-workspace.yaml` で明示許可）。ローカル状態は `.wrangler/` に保存される。リクエスト制限もローカルで有効。
+Dependency installation runs the `esbuild` and `workerd` build scripts, explicitly allowed in `pnpm-workspace.yaml`. Local state is stored in `.wrangler/`. Request limits also apply locally.
 
-スマートフォンの実機確認にはHTTPSの検証環境を利用する。通常のLAN内HTTPではWeb Cryptoが利用できない。招待リンクは開いているサイトのoriginを使う。
+Use an HTTPS staging deployment to test on physical phones. Web Crypto is unavailable over ordinary LAN HTTP. Invitation links use the origin of the currently open site.
 
-## 構成
+## Project structure
 
-- `src/` — Svelteの画面とブラウザ側の接続・暗号化・転送
-- `shared/` — 通信の型、サイズ制限、受信データの検証
-- `worker/` — 接続受付、招待管理、暗号文の中継
-- `tests/` / `e2e/` — 単体テストとブラウザ間の回帰テスト
-- [アーキテクチャ](docs/ARCHITECTURE.md)
-- [UI・ビジュアルデザイン](docs/DESIGN.md)
-- [セキュリティ設計と限界](docs/SECURITY.md)
-- [公開・検証・ロールバック](docs/DEPLOYMENT.md)
-- [実施済みの検証と残件](docs/VALIDATION.md)
+- `src/` — Svelte UI and browser-side connections, encryption, and transfers
+- `shared/` — Protocol types, size limits, and incoming data validation
+- `worker/` — Connection handling, invitation management, and encrypted message relay
+- `tests/` / `e2e/` — Unit tests and browser-to-browser regression tests
 
-## 利用範囲
+## Documentation
 
-両方の画面を開いたまま使う。再読み込み／タブを閉じた後の復元や、相手が後から受け取る配送は行わない。短い通信断の間は同じページ内の鍵と転送状態を保持して再接続する。
+- [Architecture](docs/ARCHITECTURE.md)
+- [UI and visual design](docs/DESIGN.md)
+- [Security design and limitations](docs/SECURITY.md)
+- [Deployment and rollback](docs/DEPLOYMENT.md)
 
-招待は3分、接続は無操作15分・最長1時間。履歴は直近20件、受信済みファイルは合計30 MBを上限に古いものから解放する。コピーや保存済みのデータは消去しない。「転送完了」は相手のブラウザが受信・検証済みという意味で、ディスクへの保存完了ではない。
+## Usage and limits
 
-初期版はWebSocket中継を使う。WebRTC、TURN、クラウドへのファイル保管、HTTPポーリングのフォールバックは組み込んでいない。将来の通信方式の変更に備え、画面、転送プロトコル、暗号処理、中継を分離している。
+Keep both pages open during a session. Reloading or closing a tab loses the session; there is no offline delivery. A temporary disconnection preserves keys and transfer state in the same page so the connection can resume.
 
-## 旧版
+Invitations expire after three minutes. Sessions expire after 15 minutes of inactivity or one hour in total. History keeps the latest 20 entries; completed received files have a combined 30 MB limit, with the oldest released first. Data already copied or saved is unaffected. A delivery receipt means the other browser has received and verified the data, not that it has been saved to disk.
 
-Fly.io版は `legacy-fly-v1` タグ（`6566c46`）に記録。刷新作業は `feat/textrans-v2` ブランチ。旧版のExpress／Socket.IO／EJSとFly.io用ファイルは、このブランチでは新構成に置き換えている。
+The current implementation uses a WebSocket relay. It has no WebRTC, TURN, cloud file storage, or HTTP polling fallback. The UI, transfer protocol, cryptography, and relay are separate so the transport can evolve independently.
+
+## Legacy version
+
+The `master` branch contains the current Cloudflare-based implementation. The previous Fly.io version is preserved on `textrans-v1` and at the `legacy-fly-v1` tag (`6566c46`), including its Express, Socket.IO, EJS, and Fly.io configuration files.

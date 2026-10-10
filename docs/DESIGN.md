@@ -1,29 +1,27 @@
-# UI・ビジュアルデザイン
+# UI and visual design
 
-2026-09-26。ユーザー提供の `apple-design` スキルを参照し、「ちょっと渡す」操作への集中、すぐに分かる反応、読みやすさを軸に構成した。
+The interface focuses on a quick handoff: clear actions, immediate feedback, and readable content.
 
-## 画面の役割
+## Screen flow
 
-- **接続前:** 中央のカードに接続開始とコード入力を集約。端末間の受け渡しを示す小さなベクターイラスト、短い説明、ひとつの主要ボタンで始められる。
-- **招待:** QRを中心に置き、6桁コードと招待リンクを代替手段として並べる。有効時間とコピー操作を同じ場所で確認できる。
-- **照合:** 3組の数字を独立した枠に分け、両画面で見比べやすくする。確認待ちも表示する。
-- **接続後:** パソコンでは送信欄と履歴を左右に配置。スマホでは1列にし、受信依頼を送信欄より上に置く。受信を承認すると、そのファイルの進捗・保存操作へフォーカスを移す。受信依頼が届いただけではフォーカスやスクロールを奪わない。
-- **終了:** 下書き・履歴・転送があるときだけ、消去前に確認する。キャンセル・Escapeで元の操作へ戻れる。
+- **Before connecting:** A central card brings together session creation and code entry. A small vector illustration shows the handoff between devices, with a brief description and one primary button to get started.
+- **Invitation:** The QR code takes priority, with a six-digit code and invitation link as alternatives. Expiration information and copy actions appear together.
+- **Verification:** Three groups of numbers appear in separate boxes for easy comparison between screens. The interface also shows when the other participant's confirmation is pending.
+- **Connected:** On desktop, the composer and history sit side by side. On mobile, they form a single column, with incoming requests above the composer. Accepting a file moves focus to its progress and save controls. An incoming request alone does not move focus or scroll the page.
+- **Ending a session:** Ask for confirmation before clearing drafts, history, or transfers, only when any of them exist. Cancel or Escape returns to the previous interaction.
 
-## 見た目と操作
+## Appearance and interaction
 
-背景は淡いニュートラル、内容は白い面、主要な操作は青。余白、角丸、境界、影を共通のCSS変数で管理する。ダークモードでは背景・面・文字・状態色を切り替える。
+The default palette uses a soft neutral background, white content surfaces, and blue primary actions. Shared CSS variables define spacing, corner radii, borders, and shadows. Dark mode adjusts backgrounds, surfaces, text, and status colors.
 
-システムフォントを使い、見出しと本文の太さ・行間・字間を分ける。アイコンと端末イラストはローカルSVG。追加のフォント・画像・アニメーションライブラリは取得しない。
+System fonts provide distinct heading and body weights, line heights, and letter spacing. Icons and device illustrations are local SVG assets. The page does not fetch external fonts, images, or animation libraries.
 
-セグメントの選択背景はSvelteのspringで現在位置から移動する。押下は即時に反応し、画面や受信カードは短いフェードで現れる。アニメーション完了を待ってから操作を許可する処理は設けない。
+The selected segment's background moves from its current position using a Svelte spring. Presses respond immediately, while screens and incoming cards appear with short fades. Interactions do not wait for animations to finish.
 
-コピーは押したボタンにチェックと結果を表示し、読み上げにも通知する。コードは全角数字や空白入りの貼り付けを整形する。無効な招待は入力欄の近くにエラーを出し、入力内容を残して修正できる。テキスト上限は入力中に表示する。複数ファイルのドロップは、1件ずつ送る案内を出す。
+Copy actions show a check mark and result on the button and announce the result to screen readers. Code entry normalizes pasted full-width digits and whitespace. Invalid invitations show an inline error while preserving the input for correction. Text limits remain visible while typing. Dropping multiple files displays guidance to send one at a time.
 
-## アクセシビリティ
+## Accessibility
 
-セグメントは矢印・Home・Endで選択し、Tabで次の操作へ進める。画面が切り替わると見出しへ、受信承認後は該当ファイルへフォーカスを移す。終了確認はネイティブのdialogでフォーカスの閉じ込めとEscapeを扱う。未送信の下書きや進行中のファイルがある場合は、ブラウザが対応する離脱確認も使う。
+Arrow, Home, and End keys select segments; Tab moves to the next control. Screen changes move focus to the heading, and accepting a transfer moves focus to that file. A native dialog handles focus containment and Escape for session-end confirmation. When unsent drafts or active file transfers exist, the app also uses the browser's leave-page confirmation where supported.
 
-文字はremを基本にし、狭い画面では改行・縦積みを許可する。タッチ時の主要な操作領域は44 CSS px以上。動きを減らす設定ではspringを即時にし、スクロールと押下の移動を省く。透明度を減らす設定ではヘッダーを不透明にする。高コントラスト設定では文字と境界を強める。
-
-実施したブラウザ・画面サイズ・操作検証と実機での残件は[検証記録](VALIDATION.md)を参照。
+Typography uses rem units, and narrow layouts allow wrapping and vertical stacking. Primary touch targets are at least 44 CSS pixels. Reduced-motion preferences make spring transitions immediate and remove animated scrolling and press movement. Reduced-transparency preferences make the header opaque. High-contrast preferences strengthen text and borders.
