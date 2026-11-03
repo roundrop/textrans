@@ -1,18 +1,19 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import { Spring, prefersReducedMotion } from 'svelte/motion';
+  import { prefersReducedMotion } from 'svelte/motion';
   import { fade } from 'svelte/transition';
   import QRCode from 'qrcode';
   import Icon from './lib/Icon.svelte';
-  import DeviceArt from './lib/DeviceArt.svelte';
   import { TransferClient, initialState } from './lib/client';
   import { translate, errorText, type CopyKey, type Language } from './lib/i18n';
-  import { MAX_TEXT_BYTES } from '../shared/protocol';
+  import { INVITE_TTL, MAX_TEXT_BYTES } from '../shared/protocol';
 
   let language = $state<Language>('ja');
   let view = $state(initialState());
-  let tab = $state<'create' | 'join'>('create');
+  let action = $state<'create' | 'join'>('create');
   let code = $state('');
+  let codeFocused = $state(false);
+  let showQr = $state(false);
   let draft = $state('');
   let qr = $state('');
   let notice = $state('');
@@ -24,7 +25,6 @@
   let endDialog = $state<HTMLDialogElement>();
   let noticeTimeout: ReturnType<typeof setTimeout>;
   let copyTimeout: ReturnType<typeof setTimeout>;
-  const selector = new Spring(0, { stiffness: 0.18, damping: 1, precision: 0.002 });
   const client = new TransferClient((value) => {
     view = value;
   });
@@ -35,8 +35,15 @@
       : bytes >= 1000
         ? (bytes / 1000).toFixed(1) + ' KB'
         : bytes + ' B';
+  const clock = (seconds: number) =>
+    Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0');
   const textBytes = $derived(new TextEncoder().encode(draft).length);
-  const home = $derived(view.phase === 'home' || view.phase === 'creating');
+  // The host keeps the home layout while its invitation is open, so the code
+  // appears in place instead of on a separate screen.
+  const hosting = $derived(
+    view.phase === 'waiting' && view.connection?.role === 'host' && !view.paired,
+  );
+  const home = $derived(view.phase === 'home' || view.phase === 'creating' || hosting);
   const secure = $derived(view.verified && view.peerVerified);
   const available = $derived(view.phase === 'connected');
   const busy = $derived(view.phase === 'creating');
@@ -48,7 +55,7 @@
       : view.phase === 'reconnecting'
         ? 'reconnecting'
         : view.phase === 'verifying'
-          ? 'verifying'
+          ? 'verifyStatus'
           : view.phase === 'ended'
             ? 'ended'
             : 'waiting',
@@ -56,9 +63,6 @@
 
   $effect(() => {
     document.documentElement.lang = language;
-  });
-  $effect(() => {
-    void selector.set(tab === 'create' ? 0 : 1, { instant: prefersReducedMotion.current });
   });
   $effect(() => {
     if (view.phase === 'ended') {
@@ -77,6 +81,18 @@
       );
     }
   });
+  // A newly issued code replaces the button that created it, so focus moves to the code.
+  let issuedCode = '';
+  $effect(() => {
+    const next = hosting ? view.connection?.code || '' : '';
+    if (next === issuedCode) return;
+    issuedCode = next;
+    if (next)
+      void tick().then(() =>
+        document.getElementById('invite-code')?.focus({ preventScroll: true }),
+      );
+    else showQr = false;
+  });
   $effect(() => {
     const url = view.inviteUrl;
     if (!url) {
@@ -88,7 +104,7 @@
       width: 288,
       margin: 2,
       errorCorrectionLevel: 'M',
-      color: { dark: '#17243b', light: '#ffffff' },
+      color: { dark: '#0b0b0c', light: '#ffffff' },
     }).then((value) => {
       if (current) qr = value;
     });
@@ -103,8 +119,10 @@
     const key = fragment.get('key');
     // Remove the secret from the address bar/history before doing any network work.
     if (location.hash) history.replaceState(null, '', location.pathname);
-    if (inviteCode && /^\d{6}$/.test(inviteCode) && key && /^[A-Za-z0-9_-]{43}$/.test(key))
+    if (inviteCode && /^\d{6}$/.test(inviteCode) && key && /^[A-Za-z0-9_-]{43}$/.test(key)) {
+      action = 'join';
       void client.join(inviteCode, key);
+    }
     const warnBeforeLeave = (event: BeforeUnloadEvent) => {
       if (draft.trim() || view.outgoing || view.incoming) event.preventDefault();
     };
@@ -157,6 +175,15 @@
       sending = false;
     }
   }
+  function create() {
+    action = 'create';
+    void client.create();
+  }
+  function join() {
+    if (code.length !== 6 || busy) return;
+    action = 'join';
+    void client.join(code);
+  }
   function end() {
     endDialog?.close();
     client.end();
@@ -164,7 +191,6 @@
     code = '';
     copied = '';
     notice = '';
-    tab = 'create';
   }
   function requestEnd() {
     if (draft.trim() || view.history.length || view.outgoing || view.incoming)
@@ -178,19 +204,6 @@
     } catch {
       return null;
     }
-  }
-  function tabKey(event: KeyboardEvent) {
-    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-    event.preventDefault();
-    tab =
-      event.key === 'Home'
-        ? 'create'
-        : event.key === 'End'
-          ? 'join'
-          : tab === 'create'
-            ? 'join'
-            : 'create';
-    document.getElementById(tab + '-tab')?.focus();
   }
   function selectFile(event: Event) {
     const element = event.target as HTMLInputElement;
@@ -228,116 +241,121 @@
 
 {#snippet errorBanner()}
   <div class="error-banner" role="alert">
-    <Icon name="alert" size={19} /><span>{errorText(language, view.error)}</span>
+    <Icon name="alert" size={18} /><span>{errorText(language, view.error)}</span>
     <button class="icon-button" onclick={() => client.clearError()} aria-label={t('clear')}
-      ><Icon name="close" size={18} /></button
+      ><Icon name="close" size={16} /></button
     >
   </div>
 {/snippet}
 
+{#snippet copyLabel(id: string, label: CopyKey, icon: 'copy' | 'link')}
+  <Icon name={copied === id ? 'check' : icon} size={15} />{t(copied === id ? 'copied' : label)}
+{/snippet}
+
 <a class="skip-link" href="#main">{t('skip')}</a>
-<div class="page-shell" class:in-session={!home}>
-  <header class="site-header">
-    <div class="header-inner">
-      <a
-        class="brand"
-        href="/"
-        onclick={(event) => {
-          event.preventDefault();
-          requestEnd();
-        }}
-        aria-label="Textrans"
-      >
-        <span class="brand-mark"><Icon name="arrows" size={21} /></span><span>textrans</span>
-      </a>
-      <span class="header-caption">{t('tagline')}</span>
-      <button
-        class="language"
-        onclick={() => {
-          language = language === 'ja' ? 'en' : 'ja';
-        }}
-        aria-label={language === 'ja' ? 'Switch to English' : '日本語に切り替える'}
-        ><Icon name="globe" size={17} />{language === 'ja' ? 'EN' : '日本語'}</button
-      >
-    </div>
+<div class="page" class:in-session={!home}>
+  <header class="bar">
+    <a
+      class="brand"
+      href="/"
+      onclick={(event) => {
+        event.preventDefault();
+        requestEnd();
+      }}
+      aria-label="Textrans">textrans</a
+    >
+    <span class="bar-meta"><span>{t('encrypted')}</span><span>{t('noStorage')}</span></span>
+    <button
+      class="language"
+      onclick={() => {
+        language = language === 'ja' ? 'en' : 'ja';
+      }}
+      aria-label={language === 'ja' ? 'Switch to English' : '日本語に切り替える'}
+      >{language === 'ja' ? 'EN' : 'JA'}</button
+    >
   </header>
 
   <main id="main" tabindex="-1">
     {#if home}
-      <div class="home-layout">
-        <section class="intro">
-          <DeviceArt />
-          <h1 tabindex="-1">{t('tagline')}</h1>
-          <p class="description">{t('description')}</p>
-        </section>
-        <section class="connect-card surface" aria-label={t('connect')}>
-          <div class="tab-row" role="tablist" aria-label={t('connect')}>
-            <span
-              class="tab-selector"
-              style:transform={'translateX(' + selector.current * 100 + '%)'}
-              aria-hidden="true"
-            ></span>
-            <button
-              role="tab"
-              id="create-tab"
-              aria-controls="connect-panel"
-              aria-selected={tab === 'create'}
-              tabindex={tab === 'create' ? 0 : -1}
-              onkeydown={tabKey}
-              onclick={() => {
-                tab = 'create';
-              }}>{t('create')}</button
-            >
-            <button
-              role="tab"
-              id="join-tab"
-              aria-controls="connect-panel"
-              aria-selected={tab === 'join'}
-              tabindex={tab === 'join' ? 0 : -1}
-              onkeydown={tabKey}
-              onclick={() => {
-                tab = 'join';
-              }}>{t('enter')}</button
-            >
-          </div>
-          <div
-            id="connect-panel"
-            class="connect-panel"
-            role="tabpanel"
-            aria-labelledby={tab + '-tab'}
-            aria-busy={busy}
-          >
-            {#if tab === 'create'}
-              <div class="connect-explainer" in:fade={{ duration: 120 }}>
-                <span class="feature-icon"><Icon name="qr" size={26} /></span>
-                <h2>{t('createTitle')}</h2>
-                <p>{t('createHelp')}</p>
-              </div>
-              <button class="primary full" disabled={busy} onclick={() => client.create()}
-                >{#if busy}<span class="spinner small" aria-hidden="true"></span>{/if}{busy
-                  ? t('working')
-                  : t('createButton')}{#if !busy}<Icon name="arrow" size={18} />{/if}</button
+      <div class="home">
+        <h1 class="home-title" tabindex="-1">{t('tagline')}</h1>
+        <div class="panes">
+          <section class="pane issue" aria-labelledby="issue-title" aria-busy={busy}>
+            <h2 id="issue-title" class="kicker">{t('issueLabel')}</h2>
+            {#if hosting && view.connection}
+              <strong class="invite-code" id="invite-code" tabindex="-1" data-testid="invite-code"
+                ><span>{view.connection.code.slice(0, 3)}</span><span
+                  >{view.connection.code.slice(3)}</span
+                ></strong
               >
-            {:else}
-              <form
-                onsubmit={(event) => {
-                  event.preventDefault();
-                  if (code.length === 6 && !busy) void client.join(code);
-                }}
-                in:fade={{ duration: 120 }}
-              >
-                <div class="join-copy">
-                  <label for="join-code">{t('codeLabel')}</label>
-                  <p>{t('joinHelp')}</p>
+              <div class="invite-body">
+                <div class="qr" class:collapsed={!showQr}>
+                  {#if qr}<img src={qr} width="144" height="144" alt={t('qrAlt')} />{:else}<span
+                      class="spinner"
+                      aria-hidden="true"
+                    ></span>{/if}
                 </div>
+                <div class="invite-timer">
+                  <p>{t('scanHelp')}</p>
+                  <div class="meter" aria-hidden="true">
+                    <i style:width={(view.remaining / (INVITE_TTL / 1000)) * 100 + '%'}></i>
+                  </div>
+                  <span class="mono" class:expiring={view.remaining < 30}
+                    >{t('expires')} {clock(view.remaining)}</span
+                  >
+                </div>
+              </div>
+              <div class="actions">
+                <button class="button" onclick={() => copy(view.connection!.code, 'code')}
+                  >{@render copyLabel('code', 'copyCode', 'copy')}</button
+                >
+                <button class="button" onclick={() => copy(view.inviteUrl, 'invite')}
+                  >{@render copyLabel('invite', 'link', 'link')}</button
+                >
+                <button
+                  class="button qr-toggle"
+                  aria-expanded={showQr}
+                  onclick={() => {
+                    showQr = !showQr;
+                  }}><Icon name="qr" size={15} />{t(showQr ? 'hideQr' : 'showQr')}</button
+                >
+                <button class="button quiet" onclick={end}>{t('cancel')}</button>
+              </div>
+              <p class="hint">{t('pairTrust')}</p>
+            {:else}
+              <p class="hint">{t('issueHelp')}</p>
+              <div class="actions">
+                <button class="button primary" disabled={busy} onclick={create}
+                  >{#if busy && action === 'create'}<span class="spinner small" aria-hidden="true"
+                    ></span>{t('working')}{:else}{t('createButton')}{/if}</button
+                >
+              </div>
+            {/if}
+            {#if view.error && action === 'create'}{@render errorBanner()}{/if}
+          </section>
+
+          <section class="pane join" aria-labelledby="join-title">
+            <h2 id="join-title" class="kicker">{t('joinLabel')}</h2>
+            <form
+              onsubmit={(event) => {
+                event.preventDefault();
+                join();
+              }}
+            >
+              <label for="join-code" class="sr-only">{t('codeLabel')}</label>
+              <div class="code-field">
                 <input
                   id="join-code"
-                  class="code-input"
                   inputmode="numeric"
                   autocomplete="one-time-code"
                   pattern={'[0-9]{6}'}
-                  placeholder="000000"
                   value={code}
+                  onfocus={() => {
+                    codeFocused = true;
+                  }}
+                  onblur={() => {
+                    codeFocused = false;
+                  }}
                   oninput={(event) => {
                     code = event.currentTarget.value
                       .normalize('NFKC')
@@ -347,96 +365,61 @@
                     if (view.error) client.clearError();
                   }}
                   required
-                  aria-invalid={!!view.error}
+                  aria-invalid={!!view.error && action === 'join'}
                   aria-describedby="join-code-help"
                 />
-                <p id="join-code-help" class="input-hint">{t('joinCodeHint')}</p>
-                <button class="primary full" disabled={code.length !== 6 || busy}
-                  >{#if busy}<span class="spinner small" aria-hidden="true"></span>{/if}{busy
-                    ? t('working')
-                    : t('joinButton')}{#if !busy}<Icon name="arrow" size={18} />{/if}</button
+                <div class="code-boxes" aria-hidden="true">
+                  {#each { length: 6 } as _, i}<span
+                      class:filled={i < code.length}
+                      class:current={codeFocused && i === Math.min(code.length, 5)}
+                      >{code[i] ?? ''}</span
+                    >{/each}
+                </div>
+              </div>
+              <p id="join-code-help" class="hint">{t('joinHelp')}</p>
+              <div class="actions">
+                <button class="button primary" disabled={code.length !== 6 || busy}
+                  >{#if busy && action === 'join'}<span class="spinner small" aria-hidden="true"
+                    ></span>{t('working')}{:else}{t('joinButton')}<kbd aria-hidden="true">↵</kbd
+                    >{/if}</button
                 >
-              </form>
-            {/if}
-            {#if view.error}{@render errorBanner()}{/if}
-            {#if busy}<button class="quiet-button busy-cancel" onclick={end}>{t('cancel')}</button
-              >{/if}
-          </div>
-        </section>
-        <div class="trust-note"><Icon name="lock" size={15} /><span>{t('homeTrust')}</span></div>
+              </div>
+            </form>
+            <p class="hint camera-hint">{t('cameraHint')}</p>
+            {#if view.error && action === 'join'}{@render errorBanner()}{/if}
+          </section>
+        </div>
       </div>
     {:else}
-      <div class="session-shell" class:wide={secure}>
-        <div class="session-heading">
-          <div
+      <div class="session" class:wide={secure}>
+        <div class="status-bar">
+          <span
             class="status"
-            class:connected={available}
-            class:reconnecting={view.phase === 'reconnecting'}
+            class:ok={available}
+            class:warn={view.phase === 'verifying' || view.phase === 'reconnecting'}
+            aria-live="polite">{t(statusKey)}</span
           >
-            <span class="status-dot" aria-hidden="true"></span><span aria-live="polite"
-              >{t(statusKey)}</span
-            >
-          </div>
-          {#if view.phase !== 'ended'}<button class="quiet-button end-button" onclick={requestEnd}
-              >{t(secure ? 'end' : 'cancel')}<Icon name="close" size={15} /></button
+          {#if view.phase !== 'ended'}<button class="button quiet" onclick={requestEnd}
+              >{t(secure ? 'end' : 'cancel')}</button
             >{/if}
         </div>
         {#if view.error && view.phase !== 'ended'}{@render errorBanner()}{/if}
-        {#if view.phase === 'waiting' && view.connection?.role === 'host' && !view.paired}
-          <section class="pair-card surface" in:fade={{ duration: 160 }}>
-            <h1 tabindex="-1">{t('scan')}</h1>
-            <p class="section-description">{t('scanHelp')}</p>
-            <div class="qr-wrap">
-              {#if qr}<img src={qr} width="240" height="240" alt={t('qrAlt')} />{:else}<div
-                  class="qr-placeholder"
-                >
-                  <span class="spinner" aria-hidden="true"></span><span class="sr-only"
-                    >{t('working')}</span
-                  >
-                </div>{/if}
-            </div>
-            <div class="countdown" class:expiring={view.remaining < 30}>
-              <Icon name="clock" size={14} /><span>{t('expires')}</span><strong
-                >{Math.floor(view.remaining / 60)}:{String(view.remaining % 60).padStart(
-                  2,
-                  '0',
-                )}</strong
-              >
-            </div>
-            <div class="or-divider"><span>{t('orCode')}</span></div>
-            <button
-              class="invite-code"
-              onclick={() => copy(view.connection!.code, 'code')}
-              aria-label={t('copyCode')}
-              ><strong data-testid="invite-code">{view.connection.code}</strong><Icon
-                name={copied === 'code' ? 'check' : 'copy'}
-                size={20}
-              /></button
-            >
-            <p class="code-instruction">{t('codeInstruction')}</p>
-            <button
-              class="secondary full invite-link"
-              onclick={() => copy(view.inviteUrl, 'invite')}
-              ><Icon name={copied === 'invite' ? 'check' : 'link'} size={18} />{t(
-                copied === 'invite' ? 'copied' : 'link',
-              )}</button
-            >
-          </section>
-          <p class="under-card"><Icon name="lock" size={15} />{t('pairTrust')}</p>
-        {:else if view.phase === 'verifying' && !secure}
-          <section class="verify-card surface" in:fade={{ duration: 160 }}>
-            <span class="state-icon"><Icon name="shield" size={30} /></span>
+
+        {#if view.phase === 'verifying' && !secure}
+          <section class="panel verify" in:fade={{ duration: 140 }}>
             <h1 tabindex="-1">{t('verifying')}</h1>
-            <p class="section-description">{t('verifyHelp')}</p>
             <div class="sas" data-testid="sas">
               {#each view.sas.split(' · ') as group}<span>{group}</span>{/each}
             </div>
-            {#if view.verified}<div class="verification-wait" role="status">
-                <span class="spinner small" aria-hidden="true"></span>{t('verifyWaiting')}
-              </div>{:else}<button class="primary full" onclick={() => client.verify()}
-                ><Icon name="check" size={20} />{t('verify')}</button
-              >{/if}
-            <button class="quiet-button reject-button" onclick={end}>{t('reject')}</button>
+            <p class="hint">{t('verifyHelp')}</p>
+            <div class="verify-actions">
+              {#if view.verified}<p class="waiting" role="status">
+                  <span class="spinner small" aria-hidden="true"></span>{t('verifyWaiting')}
+                </p>{:else}<button class="button primary" onclick={() => client.verify()}
+                  >{t('verify')}</button
+                >{/if}
+              <button class="button" onclick={end}>{t('reject')}</button>
+            </div>
           </section>
         {:else if secure}
           {#if view.phase === 'reconnecting'}<div class="connection-note" role="status">
@@ -444,42 +427,26 @@
               <p>{t('reconnectHelp')}</p>
             </div>{/if}
           <div class="workspace">
-            {#if view.incoming}
-              <section
-                class="incoming-card"
-                aria-labelledby="incoming-title"
-                in:fade={{ duration: 160 }}
-              >
-                <div class="incoming-info">
-                  <span class="file-icon"><Icon name="download" size={25} /></span>
-                  <div>
-                    <h2 id="incoming-title" role="status">{t('incoming')}</h2>
-                    <p class="incoming-name">{view.incoming.name}</p>
-                    <span class="file-size">{size(view.incoming.size)}</span>
-                  </div>
-                </div>
-                <div class="incoming-actions">
-                  <button class="secondary" onclick={() => client.cancelFile(view.incoming!.id)}
-                    >{t('decline')}</button
-                  ><button class="primary" disabled={!available} onclick={acceptFile}
-                    ><Icon name="download" size={18} />{t('accept')}</button
-                  >
-                </div>
-              </section>
-            {/if}
-            <section class="compose-card surface">
-              <div class="compose-heading">
-                <h1 tabindex="-1">{t('ready')}</h1>
-                <span class="encrypted-badge" title={t('private')}
-                  ><Icon name="lock" size={15} /><span>{t('private')}</span></span
+            <section
+              class="composer"
+              class:dragging
+              aria-labelledby="compose-title"
+              ondragover={(event) => {
+                event.preventDefault();
+                if (available && !view.outgoing) dragging = true;
+              }}
+              ondragleave={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget as Node)) dragging = false;
+              }}
+              ondrop={drop}
+            >
+              <div class="composer-head">
+                <h1 id="compose-title" class="kicker" tabindex="-1">{t('ready')}</h1>
+                <button class="button quiet small" onclick={paste}
+                  ><Icon name="paste" size={14} />{t('paste')}</button
                 >
               </div>
-              <div class="editor-label">
-                <label for="text-draft">{t('compose')}</label><button
-                  class="quiet-button"
-                  onclick={paste}><Icon name="paste" size={16} />{t('paste')}</button
-                >
-              </div>
+              <label for="text-draft" class="sr-only">{t('compose')}</label>
               <div class="editor" class:over={textBytes > MAX_TEXT_BYTES}>
                 <textarea
                   id="text-draft"
@@ -498,8 +465,8 @@
                       void send();
                     }
                   }}></textarea>
-                <div class="editor-meta">
-                  <span class="shortcut">{t('shortcut')}</span><span class="byte-count"
+                <div class="editor-meta mono">
+                  <span class="shortcut">{t('shortcut')}</span><span
                     >{size(textBytes)} / 64 KiB</span
                   >
                 </div>
@@ -511,86 +478,77 @@
                 >
                   {t('text-too-large')}
                 </p>{/if}
-              <button class="primary full send-button" disabled={!canSend} onclick={send}
-                >{t('send')}<Icon name="arrow" size={19} /></button
-              >
-              <div
-                class="file-drop"
-                class:dragging
-                ondragover={(event) => {
-                  event.preventDefault();
-                  if (available && !view.outgoing) dragging = true;
-                }}
-                ondragleave={(event) => {
-                  if (!event.currentTarget.contains(event.relatedTarget as Node)) dragging = false;
-                }}
-                ondrop={drop}
-                role="group"
+              <input
+                bind:this={fileInput}
+                type="file"
+                onchange={selectFile}
                 aria-label={t('file')}
-              >
-                <input
-                  bind:this={fileInput}
-                  type="file"
-                  onchange={selectFile}
-                  aria-label={t('file')}
-                  hidden
-                />
+                hidden
+              />
+              <div class="composer-actions">
                 <button
-                  class="file-picker"
+                  class="button"
                   disabled={!available || view.outgoing}
                   onclick={() => fileInput?.click()}
-                  ><span class="file-picker-icon"
-                    ><Icon name={view.outgoing ? 'upload' : 'plus'} size={23} /></span
-                  ><span
-                    ><strong>{view.outgoing ? t('fileBusy') : t('file')}</strong><span
-                      class="file-hint">{dragging ? t('dropNow') : t('fileHelp')}</span
-                    ></span
-                  ><Icon name="arrow" size={18} /></button
+                  ><Icon name={view.outgoing ? 'upload' : 'plus'} size={15} />{view.outgoing
+                    ? t('fileBusy')
+                    : t('file')}</button
+                >
+                <button class="button primary" disabled={!canSend} onclick={send}
+                  >{t('send')}</button
                 >
               </div>
+              <p class="hint file-hint">{dragging ? t('dropNow') : t('fileHelp')}</p>
             </section>
-            <section class="history-panel" aria-labelledby="history-title">
-              <div class="history-heading">
-                <h2 id="history-title">{t('history')}</h2>
-                <span class="history-count">{view.history.length}</span>
+
+            <section class="history" aria-labelledby="history-title">
+              <div class="history-head">
+                <h2 id="history-title" class="kicker">{t('history')}</h2>
+                <span class="mono count">{view.history.length}</span>
               </div>
-              <p class="history-note">{t('localHistory')}</p>
-              {#if !view.history.length}<div class="empty-history">
-                  <span class="empty-icon"><Icon name="inbox" size={31} /></span>
-                  <h3>{t('emptyTitle')}</h3>
-                  <p>{t('empty')}</p>
+              {#if view.incoming}
+                <article
+                  class="entry request incoming-card"
+                  aria-labelledby="incoming-title"
+                  in:fade={{ duration: 140 }}
+                >
+                  <div class="entry-meta mono">
+                    <span id="incoming-title" role="status">{t('incoming')}</span><span
+                      >{size(view.incoming.size)}</span
+                    >
+                  </div>
+                  <p class="file-name">{view.incoming.name}</p>
+                  <div class="entry-actions">
+                    <button class="button primary small" disabled={!available} onclick={acceptFile}
+                      >{t('accept')}</button
+                    ><button
+                      class="button small"
+                      onclick={() => client.cancelFile(view.incoming!.id)}>{t('decline')}</button
+                    >
+                  </div>
+                </article>
+              {/if}
+              {#if !view.history.length && !view.incoming}<div class="empty">
+                  <p class="empty-title">{t('emptyTitle')}</p>
+                  <p class="hint">{t('empty')}</p>
                 </div>{/if}
               {#each view.history as entry (entry.id)}
                 {#if !(entry.id === view.incoming?.id && entry.status === 'offered')}
                   <article
-                    class="history-entry"
+                    class="entry"
                     id={'entry-' + entry.id}
                     tabindex="-1"
-                    class:received={entry.direction === 'in'}
                     data-testid="history-entry"
-                    in:fade={{ duration: 150 }}
+                    in:fade={{ duration: 140 }}
                   >
-                    <div class="entry-top">
-                      <span class="entry-direction"
-                        ><Icon
-                          name={entry.direction === 'out' ? 'upload' : 'download'}
-                          size={14}
-                        />{t(entry.direction === 'out' ? 'you' : 'peer')}</span
-                      ><span>{entry.kind === 'file' ? size(entry.size || 0) : t('text')}</span>
-                    </div>
-                    {#if entry.kind === 'text'}<pre
-                        class="received-text">{entry.text}</pre>{:else}<div class="file-content">
-                        <span class="file-icon"><Icon name="file" size={25} /></span>
-                        <h3 class="file-name">{entry.name}</h3>
-                      </div>{/if}
-                    {#if entry.status === 'transferring'}<progress
-                        max="1"
-                        value={entry.progress || 0}
-                        aria-label={t('transferring')}
-                      ></progress>{/if}
-                    <div class="entry-bottom">
+                    <div class="entry-meta mono">
+                      <span
+                        >{t(entry.direction === 'out' ? 'you' : 'peer')} · {entry.kind === 'file'
+                          ? t('fileKind') + ' · ' + size(entry.size || 0)
+                          : t('text')}</span
+                      >
                       <span class="delivery-status" class:complete={entry.status === 'delivered'}
-                        >{#if entry.status === 'delivered'}<Icon name="check" size={13} />{/if}{t(
+                        >{t(
                           entry.status === 'delivered' && entry.direction === 'in'
                             ? 'received'
                             : entry.status,
@@ -598,78 +556,85 @@
                           ? ' ' + Math.round((entry.progress || 0) * 100) + '%'
                           : ''}</span
                       >
+                    </div>
+                    {#if entry.kind === 'text'}<pre
+                        class="received-text">{entry.text}</pre>{:else}<p class="file-name">
+                        {entry.name}
+                      </p>{/if}
+                    {#if entry.status === 'transferring'}<progress
+                        max="1"
+                        value={entry.progress || 0}
+                        aria-label={t('transferring')}
+                      ></progress>{/if}
+                    {#if entry.kind === 'text' || entry.url || (entry.kind === 'file' && ['offered', 'transferring'].includes(entry.status))}
                       <div class="entry-actions">
                         {#if entry.kind === 'text'}<button
-                            class="action-button"
+                            class="button small"
                             onclick={() => copy(entry.text!, entry.id)}
-                            ><Icon name={copied === entry.id ? 'check' : 'copy'} size={16} />{t(
-                              copied === entry.id ? 'copied' : 'copy',
-                            )}</button
+                            >{@render copyLabel(entry.id, 'copy', 'copy')}</button
                           >{#if urlOf(entry.text!)}<a
-                              class="action-button"
+                              class="button small"
                               href={urlOf(entry.text!)!}
                               target="_blank"
                               rel="noopener noreferrer"
-                              ><Icon name="external" size={16} />{t('open')}</a
+                              ><Icon name="external" size={14} />{t('open')}</a
                             >{/if}{/if}
                         {#if entry.url}<a
-                            class="action-button save-button"
+                            class="button small primary"
                             href={entry.url}
-                            download={entry.name}><Icon name="download" size={16} />{t('save')}</a
+                            download={entry.name}><Icon name="download" size={14} />{t('save')}</a
                           >{/if}
                         {#if entry.kind === 'file' && ['offered', 'transferring'].includes(entry.status)}<button
-                            class="action-button"
-                            onclick={() => client.cancelFile(entry.id)}
-                            ><Icon name="close" size={15} />{t('cancel')}</button
+                            class="button small quiet"
+                            onclick={() => client.cancelFile(entry.id)}>{t('cancel')}</button
                           >{/if}
                       </div>
-                    </div>
+                    {/if}
                   </article>
                 {/if}
               {/each}
+              <p class="hint history-note">{t('localHistory')}</p>
             </section>
           </div>
         {:else if view.phase === 'ended'}
-          <section class="verify-card ended-card surface" in:fade={{ duration: 160 }}>
-            <span class="state-icon"
-              ><Icon name={view.error === 'ended' ? 'check' : 'alert'} size={30} /></span
-            >
+          <section class="panel" in:fade={{ duration: 140 }}>
             <h1 tabindex="-1">{t('ended')}</h1>
-            <p class="section-description">
+            <p class="hint">
               {view.error === 'ended' ? t('endedHelp') : errorText(language, view.error)}
             </p>
-            {#each view.history as entry}<article class="history-entry">
-                <p class="recovery-label">{t('unsent')}</p>
+            {#each view.history as entry}<article class="entry">
+                <div class="entry-meta mono"><span>{t('unsent')}</span></div>
                 <pre class="received-text">{entry.text}</pre>
-                <button class="action-button" onclick={() => copy(entry.text!, entry.id)}
-                  ><Icon name={copied === entry.id ? 'check' : 'copy'} size={16} />{t(
-                    copied === entry.id ? 'copied' : 'copy',
-                  )}</button
-                >
+                <div class="entry-actions">
+                  <button class="button small" onclick={() => copy(entry.text!, entry.id)}
+                    >{@render copyLabel(entry.id, 'copy', 'copy')}</button
+                  >
+                </div>
               </article>{/each}
-            {#if draft}<article class="history-entry">
-                <p class="recovery-label">{t('unsent')}</p>
+            {#if draft}<article class="entry">
+                <div class="entry-meta mono"><span>{t('unsent')}</span></div>
                 <pre class="received-text">{draft}</pre>
-                <button class="action-button" onclick={() => copy(draft, 'draft')}
-                  ><Icon name={copied === 'draft' ? 'check' : 'copy'} size={16} />{t(
-                    copied === 'draft' ? 'copied' : 'copy',
-                  )}</button
-                >
+                <div class="entry-actions">
+                  <button class="button small" onclick={() => copy(draft, 'draft')}
+                    >{@render copyLabel('draft', 'copy', 'copy')}</button
+                  >
+                </div>
               </article>{/if}
-            <button class="primary full" onclick={requestEnd}
-              >{t('again')}<Icon name="arrow" size={18} /></button
-            >
+            <div class="verify-actions">
+              <button class="button primary" onclick={requestEnd}>{t('again')}</button>
+            </div>
           </section>
-        {:else}<section class="verify-card surface">
-            <span class="spinner large" aria-hidden="true"></span>
+        {:else}<section class="panel">
+            <span class="spinner" aria-hidden="true"></span>
             <h1 tabindex="-1">{t('working')}</h1>
-            <p class="section-description">{t('footer')}</p>
+            <p class="hint">{t('footer')}</p>
           </section>{/if}
       </div>
     {/if}
   </main>
-  <footer class="site-footer">
-    <p>{t('footer')}</p>
+  <footer class="footer">
+    <span class="mono">{t('limits')} · {t('sessionLimit')}</span>
+    <span>{t('footer')}</span>
     <details>
       <summary>{t('privacy')}</summary>
       <p>{t('privacyText')}</p>
@@ -683,12 +648,13 @@
   aria-labelledby="end-title"
   aria-describedby="end-description"
 >
-  <span class="state-icon"><Icon name="arrows" size={27} /></span>
   <h2 id="end-title">{t('endTitle')}</h2>
   <p id="end-description">{t('endHelp')}</p>
   <div class="dialog-actions">
-    <button class="secondary" onclick={() => endDialog?.close()}>{t('keepConnection')}</button
-    ><button class="danger-button" onclick={end}>{t('endConfirm')}</button>
+    <button class="button" onclick={() => endDialog?.close()}>{t('keepConnection')}</button><button
+      class="button danger"
+      onclick={end}>{t('endConfirm')}</button
+    >
   </div>
 </dialog>
 {#if notice}<div
@@ -697,5 +663,5 @@
     in:fade={{ duration: 120 }}
     out:fade={{ duration: 120 }}
   >
-    <Icon name={notice === t('copied') ? 'check' : 'alert'} size={18} />{notice}
+    <Icon name={notice === t('copied') ? 'check' : 'alert'} size={16} />{notice}
   </div>{/if}

@@ -11,7 +11,7 @@ async function context(browser: Browser, mobile = false) {
 }
 async function start(page: Page) {
   await page.goto('/');
-  await page.getByRole('button', { name: 'QR・コードを表示' }).click();
+  await page.getByRole('button', { name: '接続コードを発行' }).click();
   const code = page.getByTestId('invite-code');
   await expect(code).toHaveText(/^\d{6}$/);
   return (await code.innerText()).trim();
@@ -19,18 +19,17 @@ async function start(page: Page) {
 async function pair(host: Page, guest: Page) {
   const code = await start(host);
   await guest.goto('/');
-  await guest.getByRole('tab', { name: 'コードを入力' }).click();
   await guest.getByRole('textbox', { name: '6桁のコード' }).fill(code);
-  await guest.getByRole('button', { name: 'この端末と接続' }).click();
+  await guest.getByRole('button', { name: '接続', exact: true }).click();
   await expect(host.getByTestId('sas')).toBeVisible();
   await expect(host.getByTestId('sas').locator('span')).toHaveCount(3);
   await expect(guest.getByTestId('sas')).toHaveText(await host.getByTestId('sas').innerText(), {
     useInnerText: true,
   });
-  await host.getByRole('button', { name: '同じ数字です' }).click();
-  await guest.getByRole('button', { name: '同じ数字です' }).click();
-  await expect(host.getByText('2台がつながりました')).toBeVisible();
-  await expect(guest.getByText('2台がつながりました')).toBeVisible();
+  await host.getByRole('button', { name: '一致している' }).click();
+  await guest.getByRole('button', { name: '一致している' }).click();
+  await expect(host.getByText('接続済み', { exact: true })).toBeVisible();
+  await expect(guest.getByText('接続済み', { exact: true })).toBeVisible();
   return code;
 }
 
@@ -58,24 +57,24 @@ test('code pairing, bidirectional Unicode text, safe rendering, and consumed inv
   );
   const code = await pair(host, guest);
   const message = '<script>alert("private")</script> 日本語 🥑\n  indented';
-  await host.getByRole('textbox', { name: 'テキストを送る' }).fill(message);
-  await host.getByRole('button', { name: 'テキストを送信' }).click();
+  await host.getByRole('textbox', { name: '送信するテキスト' }).fill(message);
+  await host.getByRole('button', { name: '送信', exact: true }).click();
   await expect(guest.locator('.received-text')).toHaveText(message);
-  await expect(host.getByText('相手に届きました')).toBeVisible();
+  await expect(host.getByText('届きました', { exact: true })).toBeVisible();
   expect(frames.join('')).not.toContain(message);
   await guest
-    .getByRole('textbox', { name: 'テキストを送る' })
+    .getByRole('textbox', { name: '送信するテキスト' })
     .fill('https://example.com/a?q=日本語');
-  await guest.getByRole('button', { name: 'テキストを送信' }).click();
-  await expect(host.getByRole('link', { name: 'リンクを開く' })).toBeVisible();
+  await guest.getByRole('button', { name: '送信', exact: true }).click();
+  await expect(host.getByRole('link', { name: '開く', exact: true })).toBeVisible();
   const result = await host.request.post('/api/join', {
     headers: { Origin: 'http://127.0.0.1:5173' },
     data: { code, mode: 'code' },
   });
   expect(result.status()).toBe(404);
-  await host.getByRole('button', { name: '接続を終了' }).click();
+  await host.getByRole('button', { name: '終了', exact: true }).click();
   await host.getByRole('button', { name: '終了して履歴を消去' }).click();
-  await expect(guest.getByRole('heading', { name: '接続が終了しました' })).toBeVisible();
+  await expect(guest.getByRole('heading', { name: '接続を終了しました' })).toBeVisible();
   await expect(guest.locator('.received-text')).toHaveCount(0);
 });
 
@@ -91,15 +90,15 @@ test('exactly 10 MB binary transfer requires acceptance and preserves every byte
     buffer: data,
   });
   await expect(guest.getByRole('button', { name: '受け取る', exact: true })).toBeVisible();
-  await expect(guest.getByRole('link', { name: 'ファイルを保存' })).toHaveCount(0);
+  await expect(guest.getByRole('link', { name: '保存', exact: true })).toHaveCount(0);
   await guest.getByRole('button', { name: '受け取る', exact: true }).click();
   await expect(guest.getByTestId('history-entry')).toBeFocused();
-  await expect(guest.getByRole('link', { name: 'ファイルを保存' })).toBeVisible({
+  await expect(guest.getByRole('link', { name: '保存', exact: true })).toBeVisible({
     timeout: 40_000,
   });
-  await expect(host.getByText('相手に届きました')).toBeVisible();
+  await expect(host.getByText('届きました', { exact: true })).toBeVisible();
   const downloadEvent = guest.waitForEvent('download');
-  await guest.getByRole('link', { name: 'ファイルを保存' }).click();
+  await guest.getByRole('link', { name: '保存', exact: true }).click();
   const download = await downloadEvent;
   const saved = await readFile((await download.path())!);
   expect(saved.length).toBe(10_000_000);
@@ -119,13 +118,13 @@ test('rejects oversized files, supports declining and empty files', async ({ bro
   await host
     .locator('input[type=file]')
     .setInputFiles({ name: 'decline.txt', mimeType: 'text/plain', buffer: Buffer.from('private') });
-  await guest.getByRole('button', { name: '受け取らない', exact: true }).click();
+  await guest.getByRole('button', { name: '断る', exact: true }).click();
   await expect(host.getByText('中止しました')).toBeVisible();
   await host
     .locator('input[type=file]')
     .setInputFiles({ name: 'empty.bin', mimeType: '', buffer: Buffer.alloc(0) });
   await guest.getByRole('button', { name: '受け取る', exact: true }).click();
-  await expect(guest.getByRole('link', { name: 'ファイルを保存' })).toBeVisible();
+  await expect(guest.getByRole('link', { name: '保存', exact: true })).toBeVisible();
 });
 
 test('reconnects without changing keys or duplicating deliveries', async ({ browser }) => {
@@ -141,20 +140,18 @@ test('reconnects without changing keys or duplicating deliveries', async ({ brow
     };
   });
   await pair(host, guest);
-  await host.getByRole('textbox', { name: 'テキストを送る' }).fill('before reconnect');
-  await host.getByRole('button', { name: 'テキストを送信' }).click();
+  await host.getByRole('textbox', { name: '送信するテキスト' }).fill('before reconnect');
+  await host.getByRole('button', { name: '送信', exact: true }).click();
   await expect(guest.locator('.received-text')).toHaveText('before reconnect');
   await host.evaluate(() => {
     const sockets = (window as unknown as { testSockets: WebSocket[] }).testSockets;
     sockets.find((socket) => socket.url.includes('/api/rooms/'))!.close(4000, 'test-network-drop');
   });
-  await expect(host.getByText('2台がつながりました')).toBeVisible({ timeout: 15_000 });
-  await host.getByRole('textbox', { name: 'テキストを送る' }).fill('after reconnect');
-  await host.getByRole('button', { name: 'テキストを送信' }).click();
+  await expect(host.getByText('接続済み', { exact: true })).toBeVisible({ timeout: 15_000 });
+  await host.getByRole('textbox', { name: '送信するテキスト' }).fill('after reconnect');
+  await host.getByRole('button', { name: '送信', exact: true }).click();
   await expect(guest.locator('.received-text')).toHaveText(['after reconnect', 'before reconnect']);
-  await expect(
-    host.locator('.delivery-status').filter({ hasText: '相手に届きました' }),
-  ).toHaveCount(2);
+  await expect(host.locator('.delivery-status').filter({ hasText: '届きました' })).toHaveCount(2);
 });
 
 test('API refuses cross-origin requests, malformed input and unauthorized sockets', async ({
@@ -186,13 +183,16 @@ test('mobile home fits, is keyboard usable, and language switching works', async
   await page.setViewportSize({ width: 320, height: 740 });
   await page.goto('/');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.getByRole('tab', { name: '別の端末とつなぐ' }).focus();
-  await page.keyboard.press('ArrowRight');
-  await expect(page.getByRole('textbox', { name: '6桁のコード' })).toBeVisible();
-  await page.keyboard.press('ArrowLeft');
-  await expect(page.getByRole('button', { name: 'QR・コードを表示' })).toBeVisible();
+  // Entering a code comes first on narrow screens; both actions stay reachable by keyboard.
+  const input = page.getByRole('textbox', { name: '6桁のコード' });
+  const create = page.getByRole('button', { name: '接続コードを発行' });
+  await expect(input).toBeVisible();
+  await expect(create).toBeVisible();
+  expect((await input.boundingBox())!.y).toBeLessThan((await create.boundingBox())!.y);
+  await create.focus();
+  await expect(create).toBeFocused();
   await page.getByRole('button', { name: 'Switch to English' }).click();
-  await expect(page.getByRole('button', { name: 'Show QR & code' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Create code' })).toBeVisible();
   await page.screenshot({
     animations: 'disabled',
     path: 'test-results/home-mobile.png',
@@ -218,16 +218,16 @@ test('QR link authenticates automatically and keeps the fragment out of requests
     requests.push(request.url() + (request.postData() || ''));
   });
   await guest.goto(invite);
-  await expect(guest.getByText('2台がつながりました')).toBeVisible();
-  await expect(host.getByText('2台がつながりました')).toBeVisible();
+  await expect(guest.getByText('接続済み', { exact: true })).toBeVisible();
+  await expect(host.getByText('接続済み', { exact: true })).toBeVisible();
   expect(new URL(guest.url()).hash).toBe('');
   // The initial browser navigation event can include a fragment in Playwright's
   // URL; the actual API requests must never contain the key.
   expect(requests.filter((value) => value.includes('/api/')).join('')).not.toContain(key);
-  await host.getByRole('textbox', { name: 'テキストを送る' }).fill('QR handoff');
-  await host.getByRole('button', { name: 'テキストを送信' }).click();
+  await host.getByRole('textbox', { name: '送信するテキスト' }).fill('QR handoff');
+  await host.getByRole('button', { name: '送信', exact: true }).click();
   await expect(guest.locator('.received-text')).toHaveText('QR handoff');
-  await expect(host.getByText('相手に届きました')).toBeVisible();
+  await expect(host.getByText('届きました', { exact: true })).toBeVisible();
   await host.screenshot({
     animations: 'disabled',
     path: `test-results/connected-desktop-${test.info().project.name}.png`,
@@ -263,12 +263,12 @@ test('resumes a file after losing a chunk connection and verifies the downloaded
     .locator('input[type=file]')
     .setInputFiles({ name: 'resume.bin', mimeType: '', buffer: bytes });
   await guest.getByRole('button', { name: '受け取る', exact: true }).click();
-  await expect(guest.getByRole('link', { name: 'ファイルを保存' })).toBeVisible({
+  await expect(guest.getByRole('link', { name: '保存', exact: true })).toBeVisible({
     timeout: 30_000,
   });
-  await expect(host.getByText('相手に届きました')).toBeVisible();
+  await expect(host.getByText('届きました', { exact: true })).toBeVisible();
   const event = guest.waitForEvent('download');
-  await guest.getByRole('link', { name: 'ファイルを保存' }).click();
+  await guest.getByRole('link', { name: '保存', exact: true }).click();
   const download = await event;
   expect(await readFile((await download.path())!)).toEqual(bytes);
   await expect(guest.getByTestId('history-entry')).toHaveCount(1);
@@ -313,10 +313,10 @@ test('maximum text with JSON escapes remains transferable', async ({ browser }) 
   // Backslashes double in JSON; the encrypted frame limit must still admit a
   // valid 64 KiB text message.
   const message = '\\'.repeat(64 * 1024);
-  await host.getByRole('textbox', { name: 'テキストを送る' }).fill(message);
-  await host.getByRole('button', { name: 'テキストを送信' }).click();
+  await host.getByRole('textbox', { name: '送信するテキスト' }).fill(message);
+  await host.getByRole('button', { name: '送信', exact: true }).click();
   await expect(guest.locator('.received-text')).toHaveText(message);
-  await expect(host.getByText('相手に届きました')).toBeVisible();
+  await expect(host.getByText('届きました', { exact: true })).toBeVisible();
 });
 
 test('invalid invitation stays in the form and supports correction', async ({ browser }) => {
@@ -331,45 +331,44 @@ test('invalid invitation stays in the form and supports correction', async ({ br
     }),
   );
   await page.goto('/');
-  await page.getByRole('tab', { name: 'コードを入力' }).click();
   const input = page.getByRole('textbox', { name: '6桁のコード' });
   await input.fill('１２３ ４５６');
   await expect(input).toHaveValue('123456');
-  await page.getByRole('button', { name: 'この端末と接続' }).click();
+  await page.getByRole('button', { name: '接続', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('新しいコード');
   await expect(input).toHaveValue('123456');
   await expect(input).toHaveAttribute('aria-invalid', 'true');
   await input.fill('654321');
   await expect(page.getByRole('alert')).toHaveCount(0);
   await expect(input).toHaveAttribute('aria-invalid', 'false');
-  await expect(page.getByRole('button', { name: 'この端末と接続' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: '接続', exact: true })).toBeEnabled();
 });
 
 test('ending protects a draft, supports Escape and restores focus', async ({ browser }) => {
   const { host, guest } = await pages(browser);
   await pair(host, guest);
-  const editor = host.getByRole('textbox', { name: 'テキストを送る' });
+  const editor = host.getByRole('textbox', { name: '送信するテキスト' });
   await editor.fill('Keep this unsent draft.');
   await host.getByRole('link', { name: 'Textrans', exact: true }).press('Enter');
   const dialog = host.getByRole('dialog');
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByRole('button', { name: 'この画面に戻る' })).toBeFocused();
+  await expect(dialog.getByRole('button', { name: '戻る', exact: true })).toBeFocused();
   await host.keyboard.press('Escape');
   await expect(dialog).not.toBeVisible();
   await expect(editor).toHaveValue('Keep this unsent draft.');
   await expect(host.getByRole('link', { name: 'Textrans', exact: true })).toBeFocused();
-  await host.getByRole('button', { name: '接続を終了' }).click();
-  await host.getByRole('button', { name: 'この画面に戻る' }).click();
+  await host.getByRole('button', { name: '終了', exact: true }).click();
+  await host.getByRole('button', { name: '戻る', exact: true }).click();
   await expect(editor).toHaveValue('Keep this unsent draft.');
-  await expect(guest.getByText('2台がつながりました')).toBeVisible();
-  await host.getByRole('button', { name: '接続を終了' }).click();
+  await expect(guest.getByText('接続済み', { exact: true })).toBeVisible();
+  await host.getByRole('button', { name: '終了', exact: true }).click();
   await host.screenshot({
     animations: 'disabled',
     path: 'test-results/end-confirmation-' + test.info().project.name + '.png',
   });
   await host.getByRole('button', { name: '終了して履歴を消去' }).click();
-  await expect(host.getByRole('button', { name: 'QR・コードを表示' })).toBeVisible();
-  await expect(guest.getByRole('heading', { name: '接続が終了しました' })).toBeVisible();
+  await expect(host.getByRole('button', { name: '接続コードを発行' })).toBeVisible();
+  await expect(guest.getByRole('heading', { name: '接続を終了しました' })).toBeVisible();
 });
 
 test('copy feedback is local to its action and incoming files appear above the mobile composer', async ({
@@ -383,9 +382,9 @@ test('copy feedback is local to its action and incoming files appear above the m
     };
   });
   await host
-    .getByRole('textbox', { name: 'テキストを送る' })
+    .getByRole('textbox', { name: '送信するテキスト' })
     .fill('週末の待ち合わせは、10時に駅前で。');
-  await host.getByRole('button', { name: 'テキストを送信' }).click();
+  await host.getByRole('button', { name: '送信', exact: true }).click();
   await guest.getByRole('button', { name: 'コピー', exact: true }).click();
   await expect(guest.getByRole('button', { name: 'コピーしました', exact: true })).toBeVisible();
   expect(await guest.evaluate(() => (window as unknown as { copiedText: string }).copiedText)).toBe(
@@ -402,7 +401,7 @@ test('copy feedback is local to its action and incoming files appear above the m
   const accept = guest.getByRole('button', { name: '受け取る', exact: true });
   await expect(accept).toBeVisible();
   const incoming = await guest.locator('.incoming-card').boundingBox();
-  const compose = await guest.locator('.compose-card').boundingBox();
+  const compose = await guest.locator('.composer').boundingBox();
   expect(incoming!.y + incoming!.height).toBeLessThan(compose!.y);
   expect((await accept.boundingBox())!.y).toBeLessThan(500);
   await guest.screenshot({
@@ -410,7 +409,7 @@ test('copy feedback is local to its action and incoming files appear above the m
     path: 'test-results/incoming-mobile-' + test.info().project.name + '.png',
     fullPage: true,
   });
-  await guest.getByRole('button', { name: '受け取らない', exact: true }).click();
+  await guest.getByRole('button', { name: '断る', exact: true }).click();
 });
 
 test('visual states fit narrow screens and large text with reduced motion', async ({ browser }) => {
@@ -430,28 +429,23 @@ test('visual states fit narrow screens and large text with reduced motion', asyn
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );
-    await page.getByRole('tab', { name: 'コードを入力' }).click();
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
-      true,
-    );
     await page.screenshot({
       animations: 'disabled',
       path: 'test-results/join-' + colorScheme + '-mobile-' + test.info().project.name + '.png',
       fullPage: true,
     });
-    await page.getByRole('tab', { name: '別の端末とつなぐ' }).click();
   }
   await page.evaluate(() => {
     document.documentElement.style.fontSize = '200%';
   });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await expect(page.getByRole('button', { name: 'QR・コードを表示' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '接続コードを発行' })).toBeVisible();
   await page.evaluate(() => {
     document.documentElement.style.fontSize = '';
   });
   await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' });
   const code = await start(page);
-  const copyCode = page.getByRole('button', { name: '6桁のコードをコピー' });
+  const copyCode = page.getByRole('button', { name: 'コードをコピー' });
   await expect(copyCode).toBeVisible();
   await expect(page.getByTestId('invite-code')).toHaveText(code);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -475,10 +469,10 @@ test('animated pairing and dialog interactions respect the production CSP', asyn
   // Keep this test separate from screenshots: Playwright's older WebKit screenshot
   // preparation injects a "body {}" style element, which our CSP correctly blocks.
   await pair(host, guest);
-  await host.getByRole('textbox', { name: 'テキストを送る' }).fill('CSP-safe transitions');
-  await host.getByRole('button', { name: 'テキストを送信' }).click();
+  await host.getByRole('textbox', { name: '送信するテキスト' }).fill('CSP-safe transitions');
+  await host.getByRole('button', { name: '送信', exact: true }).click();
   await expect(guest.locator('.received-text')).toHaveText('CSP-safe transitions');
-  await host.getByRole('button', { name: '接続を終了' }).click();
+  await host.getByRole('button', { name: '終了', exact: true }).click();
   await expect(host.getByRole('dialog')).toBeVisible();
   await host.keyboard.press('Escape');
   await expect(host.getByRole('dialog')).not.toBeVisible();
